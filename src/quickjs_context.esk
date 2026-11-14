@@ -1,0 +1,308 @@
+// quickjs_context.esk: contexts (part of quickjs.esk, which imports it in order after the ones before it)
+
+// --- context ----------------------------------------------------------------
+
+JsValue _js_value(*JSContext c, JSValue raw) {
+    let v: JsValue;
+    v.raw = raw;
+    v.ctx = c;
+    return v;
+}
+
+Result<JsValue, string> _js_result(*JSContext c, int rc, JSValue raw) {
+    if (rc < 0 || eq_is_exception(&raw) != 0) return Err<JsValue, string>(_js_take_error(c));
+    return Ok<JsValue, string>(_js_value(c, raw));
+}
+
+// Frees the context. Values of it still alive keep it until they are freed.
+void JsContext_release(*JsContext self) {
+    if (self.handle == null) return;
+    eq_context_free(self.handle);
+    self.handle = null;
+}
+
+// undefined.
+JsValue JsContext_undefined(*JsContext self) {
+    let r: JSValue;
+    eq_undefined(&r);
+    return _js_value(self.handle, r);
+}
+
+// null.
+JsValue JsContext_null(*JsContext self) {
+    let r: JSValue;
+    eq_null(&r);
+    return _js_value(self.handle, r);
+}
+
+// A number.
+JsValue JsContext_num(*JsContext self, double d) {
+    let r: JSValue;
+    eq_new_float64(self.handle, d, &r);
+    return _js_value(self.handle, r);
+}
+
+// A number from an integer (stored as a 32-bit integer when it fits, as QuickJS does).
+JsValue JsContext_int(*JsContext self, int64 n) {
+    let r: JSValue;
+    eq_new_int64(self.handle, n, &r);
+    return _js_value(self.handle, r);
+}
+
+// true or false.
+JsValue JsContext_boolean(*JsContext self, bool b) {
+    let r: JSValue;
+    eq_new_bool(self.handle, b ? 1 : 0, &r);
+    return _js_value(self.handle, r);
+}
+
+// A string from UTF-8 text (null gives "").
+JsValue JsContext_str(*JsContext self, string s) {
+    let r: JSValue;
+    eq_new_string(self.handle, s, -1, &r);
+    return _js_value(self.handle, r);
+}
+
+// A string from `n` bytes of UTF-8, which may hold NULs.
+JsValue JsContext_str_len(*JsContext self, *char s, int64 n) {
+    let r: JSValue;
+    eq_new_string(self.handle, s, n, &r);
+    return _js_value(self.handle, r);
+}
+
+// A new empty object.
+JsValue JsContext_object(*JsContext self) {
+    let r: JSValue;
+    eq_new_object(self.handle, &r);
+    return _js_value(self.handle, r);
+}
+
+// A new empty array.
+JsValue JsContext_array(*JsContext self) {
+    let r: JSValue;
+    eq_new_array(self.handle, &r);
+    return _js_value(self.handle, r);
+}
+
+// An array of `n` numbers.
+JsValue JsContext_num_array(*JsContext self, *double d, int n) {
+    JsValue a = JsContext_array(self);
+    for (i in 0..n) {
+        let x: JSValue;
+        eq_new_float64(self.handle, d[i], &x);
+        eq_set_index(self.handle, &a.raw, (int64)i, &x);
+    }
+    return a;
+}
+
+// An array of the strings of a list.
+JsValue JsContext_str_array(*JsContext self, *List<String> items) {
+    JsValue a = JsContext_array(self);
+    for (i in 0..items.size) {
+        let x: JSValue;
+        eq_new_string(self.handle, items.data[i].data, items.data[i].len, &x);
+        eq_set_index(self.handle, &a.raw, (int64)i, &x);
+    }
+    return a;
+}
+
+// A typed array of `kind` (JS_U8 ... JS_F64) holding a copy of `bytes` bytes.
+JsValue JsContext_typed_array(*JsContext self, int kind, *void data, int64 bytes) {
+    let r: JSValue;
+    eq_new_typed_array(self.handle, kind, data, bytes, &r);
+    return _js_value(self.handle, r);
+}
+
+// An ArrayBuffer holding a copy of `bytes` bytes.
+JsValue JsContext_array_buffer(*JsContext self, *void data, int64 bytes) {
+    let r: JSValue;
+    eq_new_array_buffer(self.handle, data, bytes, &r);
+    return _js_value(self.handle, r);
+}
+
+// A JavaScript function that runs `f`. `length` is its declared parameter count
+// (Function.prototype.length); the closure lives as long as the runtime.
+JsValue JsContext_function(*JsContext self, string name, int length, escaping JsFn f) {
+    let h: _JsHostFn;
+    h.f = f;
+    int id = self.rt.fns.size;
+    self.rt.fns.push(h);
+    let r: JSValue;
+    eq_new_function(self.handle, name, length, id, &r);
+    return _js_value(self.handle, r);
+}
+
+// The global object.
+JsValue JsContext_global(*JsContext self) {
+    let r: JSValue;
+    eq_global(self.handle, &r);
+    return _js_value(self.handle, r);
+}
+
+// globalThis[name] (undefined when missing).
+JsValue JsContext_get_global(*JsContext self, string name) {
+    JsValue g = JsContext_global(self);
+    JsValue v = g.get(name);
+    g.free();
+    return v;
+}
+
+// Sets globalThis[name], consuming `v`.
+bool JsContext_set_global(*JsContext self, string name, JsValue v) {
+    JsValue g = JsContext_global(self);
+    bool ok = g.set(name, v);
+    g.free();
+    return ok;
+}
+
+// Throws an Error with `msg` and returns the exception marker for a host function
+// to return.
+JsValue JsContext_throw_error(*JsContext self, string msg) {
+    let r: JSValue;
+    eq_throw(self.handle, EQ_THROW_ERROR, msg, &r);
+    return _js_value(self.handle, r);
+}
+
+// Throws a TypeError with `msg` (see throw_error).
+JsValue JsContext_throw_type_error(*JsContext self, string msg) {
+    let r: JSValue;
+    eq_throw(self.handle, EQ_THROW_TYPE, msg, &r);
+    return _js_value(self.handle, r);
+}
+
+// Throws a RangeError with `msg` (see throw_error).
+JsValue JsContext_throw_range_error(*JsContext self, string msg) {
+    let r: JSValue;
+    eq_throw(self.handle, EQ_THROW_RANGE, msg, &r);
+    return _js_value(self.handle, r);
+}
+
+// Throws `v` itself, consuming it (see throw_error).
+JsValue JsContext_throw_value(*JsContext self, JsValue v) {
+    let r: JSValue;
+    eq_throw_value(self.handle, &v.raw, &r);
+    return _js_value(self.handle, r);
+}
+
+// Takes the exception pending in this context (after a value of kind JS_EXCEPTION)
+// and returns it as text, as a failed Result would.
+string JsContext_take_error(*JsContext self) {
+    return _js_take_error(self.handle);
+}
+
+// Evaluates `src` as a classic script named `file` (for stack traces) and returns
+// its completion value.
+Result<JsValue, string> JsContext_eval(*JsContext self, string src, string file) {
+    let r: JSValue;
+    int rc = eq_eval(self.handle, src, -1, file, 0, &r);
+    return _js_result(self.handle, rc, r);
+}
+
+// Evaluates `src` as the ES module `name`, loading its imports through the runtime's
+// loader and running jobs until it settles (top-level await included). Returns the
+// module's namespace object (its exports). `name` is what relative imports resolve
+// against, normally the module's resolved path.
+Result<JsValue, string> JsContext_eval_module(*JsContext self, string name, string src) {
+    let r: JSValue;
+    int rc = eq_eval_module(self.handle, src, -1, name, &r);
+    return _js_result(self.handle, rc, r);
+}
+
+// Reads the file at `path` and evaluates it as an ES module named by its normalized
+// path (see eval_module).
+Result<JsValue, string> JsContext_eval_file(*JsContext self, string path) {
+    let src: String;
+    String_init(&src, 4096);
+    defer src.free();
+    let name: String;
+    String_init(&name, 128);
+    defer name.free();
+    js_path_normalize(path, &name);
+    if (fs_read_text(name.cstr(), &src) != 0) {
+        String_clear(&_js_err);
+        String_appendf(&_js_err, "quickjs: could not read %s", name.cstr());
+        return Err<JsValue, string>(_js_err.data);
+    }
+    let r: JSValue;
+    int rc = eq_eval_module(self.handle, src.data, src.len, name.cstr(), &r);
+    return _js_result(self.handle, rc, r);
+}
+
+// Imports module `name` through the loader (resolved against "" as the base) and
+// returns its namespace. A module already loaded is not evaluated again.
+Result<JsValue, string> JsContext_import(*JsContext self, string name) {
+    let r: JSValue;
+    int rc = eq_import(self.handle, name, &r);
+    return _js_result(self.handle, rc, r);
+}
+
+// Calls `f` with `this` (null for undefined) and `n` arguments, which stay owned by
+// the caller.
+Result<JsValue, string> JsContext_call(*JsContext self, *JsValue f, *JsValue this_val, *JsValue args, int n) {
+    // the arguments as a C array of JSValue
+    *JSValue argv = alloc<JSValue>((int64)(n > 0 ? n : 1));
+    for (i in 0..n) argv[i] = args[i].raw;
+    let r: JSValue;
+    int rc = eq_call(self.handle, &f.raw, this_val == null ? null : &this_val.raw, n, argv, &r);
+    free((*void)argv);
+    return _js_result(self.handle, rc, r);
+}
+
+// Calls the global function `name` (as globalThis.onUpdate(dt)). A missing name or a
+// value that is not a function is an error.
+Result<JsValue, string> JsContext_call_global(*JsContext self, string name, *JsValue args, int n) {
+    JsValue f = JsContext_get_global(self, name);
+    defer f.free();
+    if (f.kind() == JS_EXCEPTION) return Err<JsValue, string>(_js_take_error(self.handle));
+    if (f.kind() != JS_FUNCTION) {
+        String_clear(&_js_err);
+        String_appendf(&_js_err, "TypeError: %s is not a function", name);
+        return Err<JsValue, string>(_js_err.data);
+    }
+    return JsContext_call(self, &f, null, args, n);
+}
+
+// Calls the global function `name` when the script defines one (as onBoot, onWarp);
+// returns undefined when it does not.
+Result<JsValue, string> JsContext_call_global_opt(*JsContext self, string name, *JsValue args, int n) {
+    JsValue f = JsContext_get_global(self, name);
+    if (f.kind() != JS_FUNCTION) {
+        f.free();
+        return Ok<JsValue, string>(JsContext_undefined(self));
+    }
+    defer f.free();
+    return JsContext_call(self, &f, null, args, n);
+}
+
+// Calls `f` as a constructor (new f(...args)).
+Result<JsValue, string> JsContext_construct(*JsContext self, *JsValue f, *JsValue args, int n) {
+    *JSValue argv = alloc<JSValue>((int64)(n > 0 ? n : 1));
+    for (i in 0..n) argv[i] = args[i].raw;
+    let r: JSValue;
+    int rc = eq_construct(self.handle, &f.raw, n, argv, &r);
+    free((*void)argv);
+    return _js_result(self.handle, rc, r);
+}
+
+// Parses JSON text (JSON.parse).
+Result<JsValue, string> JsContext_parse_json(*JsContext self, string text) {
+    let r: JSValue;
+    int rc = eq_parse_json(self.handle, text, -1, "<json>", &r);
+    return _js_result(self.handle, rc, r);
+}
+
+// Runs pending promise jobs and returns how many ran, or the first job's exception.
+Result<int, string> JsContext_run_jobs(*JsContext self) {
+    *JSContext failed = null;
+    int n = eq_run_jobs(eq_context_runtime(self.handle), &failed);
+    if (n < 0) return Err<int, string>(_js_take_error(failed != null ? failed : self.handle));
+    return Ok<int, string>(n);
+}
+
+// Settles a promise by running jobs, consuming it, and returns its value; a rejected
+// promise is an error with its reason. A value that is not a promise comes back as is.
+Result<JsValue, string> JsContext_await(*JsContext self, JsValue promise) {
+    let r: JSValue;
+    int rc = eq_await(self.handle, &promise.raw, &r);
+    return _js_result(self.handle, rc, r);
+}

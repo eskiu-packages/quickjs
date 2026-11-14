@@ -1,0 +1,400 @@
+// quickjs_values.esk: values and host function arguments (part of quickjs.esk, which imports it in order after the ones before it)
+
+// --- values -----------------------------------------------------------------
+
+// Frees the value (a no-op for numbers, booleans, null and undefined).
+void JsValue_free(*JsValue self) {
+    if (self.ctx == null) return;
+    eq_free(self.ctx, &self.raw);
+}
+
+// The context the value belongs to (a handle: releasing it releases that context).
+JsContext JsValue_context(*JsValue self) {
+    let c: JsContext;
+    c.handle = self.ctx;
+    c.rt = (*JsRuntime)eq_context_host(self.ctx);
+    return c;
+}
+
+// A second reference to the same value, freed separately.
+JsValue JsValue_dup(*JsValue self) {
+    let r: JSValue;
+    eq_dup(self.ctx, &self.raw, &r);
+    return _js_value(self.ctx, r);
+}
+
+// The value's kind: JS_UNDEFINED, JS_NULL, JS_BOOL, JS_NUMBER, JS_STRING, JS_SYMBOL,
+// JS_BIGINT, JS_OBJECT, JS_ARRAY, JS_FUNCTION, JS_ERROR or JS_EXCEPTION.
+int JsValue_kind(*JsValue self) {
+    return eq_kind(self.ctx, &self.raw);
+}
+
+// True for undefined.
+bool JsValue_is_undefined(*JsValue self) { return JsValue_kind(self) == JS_UNDEFINED; }
+// True for null.
+bool JsValue_is_null(*JsValue self) { return JsValue_kind(self) == JS_NULL; }
+// True for undefined and null, the values an optional argument treats as missing.
+bool JsValue_is_nullish(*JsValue self) {
+    int k = JsValue_kind(self);
+    return k == JS_UNDEFINED || k == JS_NULL;
+}
+// True for a number.
+bool JsValue_is_number(*JsValue self) { return JsValue_kind(self) == JS_NUMBER; }
+// True for a string.
+bool JsValue_is_string(*JsValue self) { return JsValue_kind(self) == JS_STRING; }
+// True for true and false.
+bool JsValue_is_bool(*JsValue self) { return JsValue_kind(self) == JS_BOOL; }
+// True for an array.
+bool JsValue_is_array(*JsValue self) { return JsValue_kind(self) == JS_ARRAY; }
+// True for a function (anything callable).
+bool JsValue_is_function(*JsValue self) { return JsValue_kind(self) == JS_FUNCTION; }
+// True for any object: plain objects, arrays, functions and errors.
+bool JsValue_is_object(*JsValue self) {
+    int k = JsValue_kind(self);
+    return k == JS_OBJECT || k == JS_ARRAY || k == JS_FUNCTION || k == JS_ERROR;
+}
+// True for the exception marker: the operation that made the value threw, and the
+// exception is pending in the context (JsContext.take_error takes it).
+bool JsValue_is_exception(*JsValue self) { return eq_is_exception(&self.raw) != 0; }
+
+// The value as a number (ToNumber); NaN when the conversion throws.
+double JsValue_as_number(*JsValue self) {
+    double d = 0.0;
+    if (eq_to_float64(self.ctx, &self.raw, &d) < 0) {
+        let e: JSValue;
+        eq_take_exception(self.ctx, &e);
+        eq_free(self.ctx, &e);
+        return 0.0 / 0.0;
+    }
+    return d;
+}
+
+// The value as a 32-bit integer (ToInt32: truncated, wrapped); 0 when it throws.
+int JsValue_as_int(*JsValue self) {
+    int n = 0;
+    if (eq_to_int32(self.ctx, &self.raw, &n) < 0) {
+        let e: JSValue;
+        eq_take_exception(self.ctx, &e);
+        eq_free(self.ctx, &e);
+        return 0;
+    }
+    return n;
+}
+
+// The value as a 64-bit integer (truncated, saturated); 0 when it throws.
+int64 JsValue_as_int64(*JsValue self) {
+    int64 n = 0;
+    if (eq_to_int64(self.ctx, &self.raw, &n) < 0) {
+        let e: JSValue;
+        eq_take_exception(self.ctx, &e);
+        eq_free(self.ctx, &e);
+        return 0;
+    }
+    return n;
+}
+
+// The value's truthiness (ToBoolean).
+bool JsValue_as_bool(*JsValue self) {
+    return eq_to_bool(self.ctx, &self.raw) > 0;
+}
+
+// Appends the value as UTF-8 text (ToString) to out; false when the conversion
+// throws (the exception is discarded).
+bool JsValue_as_string(*JsValue self, String* out) {
+    int64 n = 0;
+    *char s = eq_to_cstring(self.ctx, &self.raw, &n);
+    if (s == null) {
+        let e: JSValue;
+        eq_take_exception(self.ctx, &e);
+        eq_free(self.ctx, &e);
+        return false;
+    }
+    out.append_bytes(s, n);
+    eq_free_cstring(self.ctx, s);
+    return true;
+}
+
+// The value as a new String (ToString), owned by the caller.
+String JsValue_to_string(*JsValue self) {
+    let s: String;
+    String_init(&s, 16);
+    JsValue_as_string(self, &s);
+    return s;
+}
+
+// Appends JSON.stringify(value, null, indent) to out; false when it throws or the
+// value has no JSON form (undefined, a function).
+bool JsValue_to_json(*JsValue self, int indent, String* out) {
+    let r: JSValue;
+    if (eq_stringify(self.ctx, &self.raw, indent, &r) < 0) {
+        let e: JSValue;
+        eq_take_exception(self.ctx, &e);
+        eq_free(self.ctx, &e);
+        return false;
+    }
+    bool ok = eq_kind(self.ctx, &r) == EQ_STRING;
+    if (ok) {
+        JsValue s = _js_value(self.ctx, r);
+        JsValue_as_string(&s, out);
+    }
+    eq_free(self.ctx, &r);
+    return ok;
+}
+
+// The data of a typed array, DataView or ArrayBuffer and its size in bytes, or null
+// for any other value. The pointer is valid while the value is alive.
+*uint8 JsValue_bytes(*JsValue self, *int64 len) {
+    return eq_buffer_data(self.ctx, &self.raw, len);
+}
+
+// value[name] (undefined when missing; a getter that throws gives a JS_EXCEPTION value).
+JsValue JsValue_get(*JsValue self, string name) {
+    let r: JSValue;
+    eq_get(self.ctx, &self.raw, name, &r);
+    return _js_value(self.ctx, r);
+}
+
+// value[name] as a number (NaN when missing or not convertible).
+double JsValue_get_num(*JsValue self, string name) {
+    JsValue v = JsValue_get(self, name);
+    double d = v.is_exception() ? 0.0 / 0.0 : JsValue_as_number(&v);
+    if (v.is_exception()) { let e: JSValue; eq_take_exception(self.ctx, &e); eq_free(self.ctx, &e); }
+    v.free();
+    return d;
+}
+
+// Appends value[name] as text to out; false when it is missing (undefined) or throws.
+bool JsValue_get_str(*JsValue self, string name, String* out) {
+    JsValue v = JsValue_get(self, name);
+    bool ok = false;
+    if (v.is_exception()) {
+        let e: JSValue;
+        eq_take_exception(self.ctx, &e);
+        eq_free(self.ctx, &e);
+    } else if (!v.is_undefined()) {
+        ok = JsValue_as_string(&v, out);
+    }
+    v.free();
+    return ok;
+}
+
+// value[i].
+JsValue JsValue_at(*JsValue self, int64 i) {
+    let r: JSValue;
+    eq_get_index(self.ctx, &self.raw, i, &r);
+    return _js_value(self.ctx, r);
+}
+
+// value[name] = v, consuming v. False when it throws (the exception stays pending).
+bool JsValue_set(*JsValue self, string name, JsValue v) {
+    return eq_set(self.ctx, &self.raw, name, &v.raw) == 0;
+}
+
+// value[name] = d.
+bool JsValue_set_num(*JsValue self, string name, double d) {
+    let x: JSValue;
+    eq_new_float64(self.ctx, d, &x);
+    return eq_set(self.ctx, &self.raw, name, &x) == 0;
+}
+
+// value[name] = s (UTF-8 text).
+bool JsValue_set_str(*JsValue self, string name, string s) {
+    let x: JSValue;
+    eq_new_string(self.ctx, s, -1, &x);
+    return eq_set(self.ctx, &self.raw, name, &x) == 0;
+}
+
+// value[name] = b.
+bool JsValue_set_bool(*JsValue self, string name, bool b) {
+    let x: JSValue;
+    eq_new_bool(self.ctx, b ? 1 : 0, &x);
+    return eq_set(self.ctx, &self.raw, name, &x) == 0;
+}
+
+// value[name] = a host function named `name` running `f` (see JsContext.function).
+bool JsValue_set_fn(*JsValue self, string name, int length, escaping JsFn f) {
+    JsContext c = JsValue_context(self);
+    JsValue fv = JsContext_function(&c, name, length, f);
+    return JsValue_set(self, name, fv);
+}
+
+// value[i] = v, consuming v.
+bool JsValue_set_at(*JsValue self, int64 i, JsValue v) {
+    return eq_set_index(self.ctx, &self.raw, i, &v.raw) == 0;
+}
+
+// Appends v to an array, consuming v.
+bool JsValue_push(*JsValue self, JsValue v) {
+    int64 n = JsValue_length(self);
+    return eq_set_index(self.ctx, &self.raw, n, &v.raw) == 0;
+}
+
+// True when the object has property `name` (own or inherited).
+bool JsValue_has(*JsValue self, string name) {
+    return eq_has(self.ctx, &self.raw, name) > 0;
+}
+
+// Deletes property `name`; false when it cannot be deleted.
+bool JsValue_delete(*JsValue self, string name) {
+    return eq_delete(self.ctx, &self.raw, name) > 0;
+}
+
+// value.length (0 when missing).
+int64 JsValue_length(*JsValue self) {
+    int64 n = 0;
+    if (eq_length(self.ctx, &self.raw, &n) < 0) {
+        let e: JSValue;
+        eq_take_exception(self.ctx, &e);
+        eq_free(self.ctx, &e);
+        return 0;
+    }
+    return n;
+}
+
+// Appends the object's own enumerable string keys to out (as Object.keys). Each
+// String is owned by the caller.
+void JsValue_keys(*JsValue self, *List<String> out) {
+    let r: JSValue;
+    if (eq_keys(self.ctx, &self.raw, &r) < 0) {
+        let e: JSValue;
+        eq_take_exception(self.ctx, &e);
+        eq_free(self.ctx, &e);
+        return;
+    }
+    JsValue arr = _js_value(self.ctx, r);
+    int64 n = JsValue_length(&arr);
+    for (i in 0..n) {
+        JsValue k = JsValue_at(&arr, i);
+        out.push(JsValue_to_string(&k));
+        k.free();
+    }
+    arr.free();
+}
+
+// Appends the elements of an array as numbers to out.
+void JsValue_numbers(*JsValue self, *List<double> out) {
+    int64 n = JsValue_length(self);
+    for (i in 0..n) {
+        JsValue x = JsValue_at(self, i);
+        out.push(JsValue_as_number(&x));
+        x.free();
+    }
+}
+
+// Calls the value as a function with `this` undefined and `n` arguments (borrowed).
+Result<JsValue, string> JsValue_call(*JsValue self, *JsValue args, int n) {
+    JsContext c = JsValue_context(self);
+    return JsContext_call(&c, self, null, args, n);
+}
+
+// Calls method `name` of the value with `n` arguments (borrowed).
+Result<JsValue, string> JsValue_call_method(*JsValue self, string name, *JsValue args, int n) {
+    JsContext c = JsValue_context(self);
+    JsValue f = JsValue_get(self, name);
+    defer f.free();
+    if (f.is_exception()) return Err<JsValue, string>(_js_take_error(self.ctx));
+    if (!f.is_function()) {
+        String_clear(&_js_err);
+        String_appendf(&_js_err, "TypeError: %s is not a function", name);
+        return Err<JsValue, string>(_js_err.data);
+    }
+    return JsContext_call(&c, &f, self, args, n);
+}
+
+// --- host function arguments ------------------------------------------------
+
+// The number of arguments the script passed.
+int JsArgs_len(*JsArgs self) {
+    return self.argc;
+}
+
+// Argument i, borrowed (undefined past the last one). dup() it to keep it, as a
+// callback to call later.
+JsValue JsArgs_at(*JsArgs self, int i) {
+    if (i < 0 || i >= self.argc) {
+        let r: JSValue;
+        eq_undefined(&r);
+        return _js_value(self.ctx, r);
+    }
+    return _js_value(self.ctx, self.argv[i]);
+}
+
+// `this` of the call, borrowed.
+JsValue JsArgs_this(*JsArgs self) {
+    return _js_value(self.ctx, *self.this_raw);
+}
+
+// True when argument i was passed and is not undefined or null.
+bool JsArgs_has(*JsArgs self, int i) {
+    JsValue v = JsArgs_at(self, i);
+    return !v.is_nullish();
+}
+
+// Argument i as a number (NaN when missing).
+double JsArgs_num(*JsArgs self, int i) {
+    JsValue v = JsArgs_at(self, i);
+    return JsValue_as_number(&v);
+}
+
+// Argument i as a number, or `def` when it is missing, undefined or null.
+double JsArgs_opt_num(*JsArgs self, int i, double def) {
+    if (!JsArgs_has(self, i)) return def;
+    return JsArgs_num(self, i);
+}
+
+// Argument i as a 32-bit integer (ToInt32).
+int JsArgs_int(*JsArgs self, int i) {
+    JsValue v = JsArgs_at(self, i);
+    return JsValue_as_int(&v);
+}
+
+// Argument i as a 32-bit integer, or `def` when it is missing, undefined or null.
+int JsArgs_opt_int(*JsArgs self, int i, int def) {
+    if (!JsArgs_has(self, i)) return def;
+    return JsArgs_int(self, i);
+}
+
+// Argument i's truthiness.
+bool JsArgs_flag(*JsArgs self, int i) {
+    JsValue v = JsArgs_at(self, i);
+    return JsValue_as_bool(&v);
+}
+
+// Argument i as UTF-8 text (ToString), valid until the host function returns; ""
+// when it does not convert.
+string JsArgs_str(*JsArgs self, int i) {
+    JsValue v = JsArgs_at(self, i);
+    int64 n = 0;
+    *char s = eq_to_cstring(self.ctx, &v.raw, &n);
+    if (s == null) {
+        let e: JSValue;
+        eq_take_exception(self.ctx, &e);
+        eq_free(self.ctx, &e);
+        return "";
+    }
+    self.strs.push(s);
+    return s;
+}
+
+// Argument i as text, or `def` when it is missing, undefined or null.
+string JsArgs_opt_str(*JsArgs self, int i, string def) {
+    if (!JsArgs_has(self, i)) return def;
+    return JsArgs_str(self, i);
+}
+
+// Appends the elements of array argument i as numbers to out.
+void JsArgs_numbers(*JsArgs self, int i, *List<double> out) {
+    JsValue v = JsArgs_at(self, i);
+    JsValue_numbers(&v, out);
+}
+
+// Every argument from i on as a number (a rest parameter, ...nums).
+void JsArgs_rest_nums(*JsArgs self, int i, *List<double> out) {
+    for (k in i..self.argc) out.push(JsArgs_num(self, k));
+}
+
+// A new reference to argument i, owned by the caller (to keep a callback).
+JsValue JsArgs_dup(*JsArgs self, int i) {
+    JsValue v = JsArgs_at(self, i);
+    return JsValue_dup(&v);
+}
