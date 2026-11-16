@@ -1,4 +1,4 @@
-// quickjs_context.esk: contexts (part of quickjs.esk, which imports it in order after the ones before it)
+// _quickjs/context.esk: contexts (part of quickjs.esk, which imports it in order after the ones before it)
 
 // --- context ----------------------------------------------------------------
 

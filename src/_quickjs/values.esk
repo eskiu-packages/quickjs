@@ -1,4 +1,4 @@
-// quickjs_values.esk: values and host function arguments (part of quickjs.esk, which imports it in order after the ones before it)
+// _quickjs/values.esk: values and host function arguments (part of quickjs.esk, which imports it in order after the ones before it)
 
 // --- values -----------------------------------------------------------------
 

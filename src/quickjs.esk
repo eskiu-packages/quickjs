@@ -625,5 +625,5 @@ string _js_take_error(*JSContext c) {
     return _js_err.data;
 }
 
-import "quickjs_context.esk";
-import "quickjs_values.esk";
+import "_quickjs/context.esk";
+import "_quickjs/values.esk";
