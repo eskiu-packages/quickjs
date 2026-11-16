@@ -94,7 +94,7 @@ To use a fresh build locally:
 
 1. Build every platform on one machine: `tools/build_native.sh` (with `ZIG` set).
 2. `python3 -I tools/update_manifest.py` writes the sums and the release URLs
-   (`https://github.com/eskiu-lang/quickjs/releases/download/vVERSION/...`) into
+   (`https://github.com/eskiu-packages/quickjs/releases/download/vVERSION/...`) into
    `eskiu.toml`.
 3. Commit, tag `vVERSION`, and upload `build/native/*.tar.gz` to that release
    (`gh release create vVERSION build/native/*.tar.gz`).

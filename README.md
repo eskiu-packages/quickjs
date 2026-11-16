@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/eskiu-lang/quickjs/actions/workflows/ci.yml"><img src="https://github.com/eskiu-lang/quickjs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/eskiu-packages/quickjs/actions/workflows/ci.yml"><img src="https://github.com/eskiu-packages/quickjs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/version-0.1.0-6448d4" alt="Version 0.1.0">
   <img src="https://img.shields.io/badge/QuickJS-2024--02--14-orange" alt="QuickJS 2024-02-14">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
@@ -106,7 +106,7 @@ TypeError: cannot read property 'rows' of null
 In an Eskiu package (Eskiu 0.15 or newer):
 
 ```bash
-eskiuc add quickjs --git https://github.com/eskiu-lang/quickjs --rev v0.1.0
+eskiuc add quickjs --git https://github.com/eskiu-packages/quickjs --rev v0.1.0
 eskiuc build
 ```
 

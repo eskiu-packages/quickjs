@@ -11,7 +11,7 @@ the archives are uploaded with the same names.
 import re
 import sys
 
-REPO = "https://github.com/eskiu-lang/quickjs"
+REPO = "https://github.com/eskiu-packages/quickjs"
 
 
 def main():
