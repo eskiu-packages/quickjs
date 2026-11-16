@@ -42,32 +42,6 @@ jobs:
           build/run tests/data/game/main.js 60 | tee build/run.txt
           grep -q "ran 60 frames" build/run.txt
 
-  macos:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Eskiu
-        run: brew install eskiu-lang/eskiu/eskiu
-      - name: Build QuickJS
-        run: tools/build_native.sh --seed macos-arm64
-      - name: Tests
-        run: eskiuc test
-      - name: Tests (-O2)
-        run: eskiuc test -O2
-      - name: Example
-        run: |
-          mkdir -p build
-          eskiuc examples/run.esk -o build/run
-          build/run tests/data/game/main.js 60 | tee build/run.txt
-          grep -q "ran 60 frames" build/run.txt
-      - name: Apple and Android libraries build and link
-        run: |
-          tools/build_native.sh --seed macos-x86_64 ios-arm64 ios-arm64-simulator ios-x86_64-simulator android-arm64 android-x86_64
-          mkdir -p build/xc
-          for t in arm64-apple-ios15.0 arm64-apple-ios15.0-simulator aarch64-linux-android24 x86_64-linux-android24; do
-            eskiuc tests/host.esk --target $t -o build/xc/host-$t
-          done
-
   windows:
     runs-on: windows-latest
     defaults:

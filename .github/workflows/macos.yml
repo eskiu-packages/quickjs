@@ -1,0 +1,40 @@
+# The macOS jobs, apart from CI: the org's macOS runners can take long to start, and a
+# job that waits too long is cancelled; here that does not mark CI failed.
+name: macOS
+on:
+  # once per change: develop (main and the tags only get commits that already ran here)
+  push:
+    branches: [develop]
+  pull_request:
+  workflow_dispatch:
+
+# Each job builds libeskqjs from native/ for its own platform and seeds it under the
+# SHA-256 eskiu.toml names (tools/build_native.sh --seed), so the tests run against
+# this checkout's C code, not the published archives.
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Eskiu
+        run: brew install eskiu-lang/eskiu/eskiu
+      - name: Build QuickJS
+        run: tools/build_native.sh --seed macos-arm64
+      - name: Tests
+        run: eskiuc test
+      - name: Tests (-O2)
+        run: eskiuc test -O2
+      - name: Example
+        run: |
+          mkdir -p build
+          eskiuc examples/run.esk -o build/run
+          build/run tests/data/game/main.js 60 | tee build/run.txt
+          grep -q "ran 60 frames" build/run.txt
+      - name: Apple and Android libraries build and link
+        run: |
+          tools/build_native.sh --seed macos-x86_64 ios-arm64 ios-arm64-simulator ios-x86_64-simulator android-arm64 android-x86_64
+          mkdir -p build/xc
+          for t in arm64-apple-ios15.0 arm64-apple-ios15.0-simulator aarch64-linux-android24 x86_64-linux-android24; do
+            eskiuc tests/host.esk --target $t -o build/xc/host-$t
+          done
