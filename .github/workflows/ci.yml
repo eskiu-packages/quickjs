@@ -1,8 +1,11 @@
 name: CI
 
 on:
+  # once per change: develop (main and the tags only get commits that already ran here)
   push:
+    branches: [develop]
   pull_request:
+  workflow_dispatch:
 
 # Each job builds libeskqjs from native/ for its own platform and seeds it under the
 # SHA-256 eskiu.toml names (tools/build_native.sh --seed), so the tests run against
